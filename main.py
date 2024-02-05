@@ -43,9 +43,9 @@ class translator:
         txtbox.click()
         txtbox.send_keys(text)
         txtbox.send_keys(Keys.ENTER)
+        WebDriverWait(self.driver, timeout=10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".result-streaming")))
 
     def getLastReply(self, timeout=20):
-        sleep(1)
         reply = ""
         t = 0
         while self.driver.find_elements(By.CSS_SELECTOR, ".result-streaming") != []:
@@ -54,7 +54,7 @@ class translator:
             sleep(1)
             t += 1
         ReplyList = self.getReplyList()
-        if len(ReplyList) <= self.reply_cnt:
+        if len(ReplyList) <= self.reply_cnt and self.driver.find_elements(By.CSS_SELECTOR, ".result-streaming") == []:
             return "Error"
         for i in range(self.reply_cnt, len(ReplyList)):
             reply += ReplyList[i].text + "\n"
