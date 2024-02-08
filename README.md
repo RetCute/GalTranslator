@@ -6,7 +6,7 @@
 <br>非常需要您的三连和star呜呜
 ## 使用说明
 * 1.安装依赖然后根据你的Chrome的版本下载对应的chromedriver丢到main.py同目录
-* 后python console中运行
+* python console中运行
 <br>from paddleocr import PaddleOCR
 <br>PaddleOCR(use_angle_cls=True, lang="japan")
 <br>等待模型下载完成
