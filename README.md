@@ -10,4 +10,4 @@
 <br>from paddleocr import PaddleOCR
 <br>PaddleOCR(use_angle_cls=True, lang="japan")
 <br>等待模型下载完成
-<br>接着python main.py 运行即可 Enjoy it~
+* 接着python main.py 运行即可 Enjoy it~
