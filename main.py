@@ -39,11 +39,14 @@ class translator:
         print("初始化成功")
 
     def ask(self, text):
-        txtbox = self.driver.find_element(By.CSS_SELECTOR, ".m-0")
-        txtbox.click()
+        global display
+        txtbox = self.driver.find_element(By.ID, "prompt-textarea")
         txtbox.send_keys(text)
         txtbox.send_keys(Keys.ENTER)
-        WebDriverWait(self.driver, timeout=10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".result-streaming")))
+        try:
+            WebDriverWait(self.driver, timeout=10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".result-streaming")))
+        except:
+            display.update_subtitle("Timeout Error")
 
     def getLastReply(self, timeout=20):
         reply = ""
@@ -185,7 +188,7 @@ def buttonClick(button):
     os.remove(filename)
 
 def monitor():
-    global running
+    global running, display
     ocr = OCR()
     display = SubtitleApp(root)
     while True:
