@@ -12,8 +12,26 @@ from selenium.webdriver.common.by import By
 import undetected_chromedriver
 from selenium.webdriver.common.keys import Keys
 from yaml import safe_load
+from openai import OpenAI
 
 running = False
+
+class apitranslator:
+    def __init__(self):
+        self.client = OpenAI(api_key=Settings.apikey)
+
+    def translate(self, text):
+        try:
+            response = self.client.chat.completions.create(
+                model=f"{Settings.model}",
+                messages=[
+                    {"role": "system", "content": f"You are a translator who specialize in Japanese to Chinese translation"},
+                    {"role": "user", "content": f"{text}"}
+                          ]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return str(e)
 
 class captureSize:
     left = None
@@ -26,6 +44,9 @@ class Settings:
     alpha = None
     ht1 = None
     ht2 = None
+    api = False
+    apikey = ''
+    model = ''
 
 class translator:
     def __init__(self):
@@ -37,6 +58,10 @@ class translator:
         self.driver.get("https://chat.openai.com/auth/login")
         WebDriverWait(self.driver, timeout=100).until(EC.url_to_be("https://chat.openai.com/"))
         print("初始化成功")
+
+    def translate(self, text):
+        self.ask("请将这段日文符合语气地优美地贴合原意地翻译为中文只给出翻译后的结果即可无需添加其他东西" + text)
+        return translator.getLastReply()
 
     def ask(self, text):
         global display
@@ -141,32 +166,47 @@ class SubtitleApp:
 class SettingsApp:
     def __init__(self):
         self.root = tkinter.Toplevel(root)
-        self.root.geometry("120x150")
+        self.root.geometry("120x230")
         self.root.title("Settings")
         tkinter.Label(self.root, text="字幕大小", font=("微软雅黑", 10)).place(x=5, y=0, width=50, height=30)
         self.size = tkinter.Entry(self.root, relief="solid")
         self.size.insert(0, Settings.size)
-        self.size.place(x=64, y=7, width=50, height=20)
+        self.size.place(x=64, y=5, width=50, height=20)
         tkinter.Label(self.root, text="字幕透明度", font=("微软雅黑", 9)).place(x=2, y=30, width=65, height=30)
         self.alpha = tkinter.Entry(self.root, relief="solid")
         self.alpha.insert(0, Settings.alpha)
-        self.alpha.place(x=64, y=37, width=50, height=20)
+        self.alpha.place(x=64, y=35, width=50, height=20)
         tkinter.Label(self.root, text="截图热键", font=("微软雅黑", 10)).place(x=2, y=60, width=65, height=30)
         self.ht1 = tkinter.Entry(self.root, relief="solid")
         self.ht1.insert(0, Settings.ht1)
-        self.ht1.place(x=64, y=67, width=50, height=20)
+        self.ht1.place(x=64, y=65, width=50, height=20)
         tkinter.Label(self.root, text="退出热键", font=("微软雅黑", 10)).place(x=2, y=90, width=65, height=30)
         self.ht2 = tkinter.Entry(self.root, relief="solid")
         self.ht2.insert(0, Settings.ht2)
-        self.ht2.place(x=64, y=97, width=50, height=20)
+        self.ht2.place(x=64, y=95, width=50, height=20)
+        self.apivar = tkinter.BooleanVar()
+        self.api = tkinter.Checkbutton(self.root, text="启用API模式", variable=self.apivar)
+        self.apivar.set(Settings.api)
+        self.api.place(x=2, y=120)
+        tkinter.Label(self.root, text="ApiKey", font=("微软雅黑", 10)).place(x=2, y=140, width=65, height=30)
+        self.apikey = tkinter.Entry(self.root, relief="solid")
+        self.apikey.insert(0, Settings.apikey)
+        self.apikey.place(x=64, y=145, width=50, height=20)
+        tkinter.Label(self.root, text="Model", font=("微软雅黑", 10)).place(x=2, y=170, width=65, height=30)
+        self.model = tkinter.Entry(self.root, relief="solid")
+        self.model.insert(0, Settings.model)
+        self.model.place(x=64, y=175, width=50, height=20)
         btn = tkinter.Button(self.root, text="保存", command=self.save)
-        btn.place(x=35, y=123, width=50, height=20)
+        btn.place(x=35, y=203, width=50, height=20)
 
     def save(self):
         Settings.size = self.size.get()
         Settings.alpha = float(self.alpha.get())
         Settings.ht1 = self.ht1.get()
         Settings.ht2 = self.ht2.get()
+        Settings.api = self.apivar.get()
+        Settings.apikey = self.apikey.get()
+        Settings.model = self.model.get()
         writeCfg()
         tkinter.messagebox.showinfo(message="保存成功")
 
@@ -196,8 +236,7 @@ def monitor():
             ImageGrab.grab((captureSize.left, captureSize.top, captureSize.right, captureSize.bottom)).save('now.png')
             text = ocr.readText("now.png")
             print(text)
-            translator.ask("请将这段日文符合语气地优美地贴合原意地翻译为中文只给出翻译后的结果即可无需添加其他东西" + text)
-            reply = translator.getLastReply()
+            reply = translator.translate(text)
             print(reply)
             display.update_subtitle(reply)
         elif keyboard.is_pressed(Settings.ht2):
@@ -216,7 +255,13 @@ alpha: {Settings.alpha}
 # 截图热键
 captureHotkey: "{Settings.ht1}"
 # 停止热键
-pauseHotkey: "{Settings.ht2}"'''
+pauseHotkey: "{Settings.ht2}"
+# 是否启用Api模式(保存后重启生效)
+ApiMode: {Settings.api}
+# ApiKey
+ApiKey: "{Settings.apikey}"
+# 模型名称
+Model: "{Settings.model}"'''
     open('config.yml', 'w', encoding="utf-8").write(config)
 
 def loadCfg():
@@ -227,7 +272,13 @@ alpha: 0.5
 # 截图热键
 captureHotkey: "w"
 # 停止热键
-pauseHotkey: "q"'''
+pauseHotkey: "q"
+# 是否启用Api模式(保存后重启生效)
+ApiMode: false
+# ApiKey
+ApiKey: "Put your api key here if you enable apimode"
+# 模型名称
+Model: "gpt-3.5-turbo"'''
     while True:
         try:
             config = safe_load(open('config.yml', 'r', errors='ignore', encoding="utf-8"))
@@ -235,6 +286,9 @@ pauseHotkey: "q"'''
             Settings.alpha = float(config["alpha"])
             Settings.ht1 = config["captureHotkey"]
             Settings.ht2 = config["pauseHotkey"]
+            Settings.api = bool(config["ApiMode"])
+            Settings.apikey = config["ApiKey"]
+            Settings.model = config["Model"]
             break
         except:
             print("加载配置文件失败,写入默认配置中....")
@@ -252,10 +306,12 @@ def run():
         root.title("GalTranslator - Running")
         Thread(target=monitor, daemon=True).start()
 
-
 if __name__ == "__main__":
-    translator = translator()
     loadCfg()
+    if Settings.api:
+        translator = apitranslator()
+    else:
+        translator = translator()
     root = tkinter.Tk()
     root.title("GalTranslator")
     root.geometry("100x150")
