@@ -1,11 +1,14 @@
 import os
+import re
+import subprocess
+
+import psutil
 from yaml import safe_load
-from PyQt5.QtCore import QRect, QThread
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import Qt
-from PyQt5 import QtWidgets
-from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QRect, QThread, Qt
+from PyQt5.QtGui import QCursor, QPixmap, QPen, QPainter, QStandardItemModel, QStandardItem
+from PyQt5.QtWidgets import QWidget, QLabel, QApplication, QVBoxLayout, QLineEdit, QPushButton, QMessageBox, QComboBox, \
+    QMainWindow, QStackedWidget, QTextEdit, QHBoxLayout, QFileDialog, QListView, QDialog
+from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
 from PIL import Image, ImageGrab, ImageEnhance
 from time import sleep
@@ -21,22 +24,25 @@ from paddleocr import PaddleOCR
 import deepl
 
 running = False
-O = T = True
+O = T = TE = True
 
 class apitranslator:
     def __init__(self):
         self.client = OpenAI(api_key=Settings.apikey)
+        self.messages = [
+                    {"role": "system", "content": f"请将下面这段日文符合语气地优美地贴合原意地翻译为中文并且结合我消息记录的前几个句子进行翻译只给出翻译后的结果即可无需添加其他东西"},
+                          ]
 
     def translate(self, text):
         try:
+            self.messages.append({"role": "user", "content": f"{text}"})
             response = self.client.chat.completions.create(
                 model=f"{Settings.model}",
-                messages=[
-                    {"role": "system", "content": f"你是一个精通日译中的翻译家.请将下面这段日文符合语气地优美地贴合原意地翻译为中文只给出翻译后的结果即可无需添加其他东西"},
-                    {"role": "user", "content": f"{text}"}
-                          ]
+                messages=self.messages
             )
-            return response.choices[0].message.content
+            translated_text = response.choices[0].message.content
+            self.messages.append({"role": "assistant", "content": translated_text})
+            return translated_text
         except Exception as e:
             logTextBox.append(str(e))
             return "Error"
@@ -148,11 +154,79 @@ class OCR:
                 text = text + r[1][0]
         return text
 
+class Textractor:
+    def __init__(self):
+        logTextBox.append("[Info]初始化Textractor中")
+        if os.path.exists(Settings.tpath):
+            self.process = subprocess.Popen(
+                Settings.tpath,
+                shell=False,
+                stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=0x08000000,
+                encoding='utf-16-le'
+            )
+            logTextBox.append("[Info]TextractorCLI.exe Successfully Launched")
+        else:
+            global TE
+            logTextBox.append("[Error]TextractorCLI.exe Not Found")
+            TE = False
+
+    def run(self, process):
+        Thread(target=self.monitor_output, daemon=True, args=(process, )).start()
+        Thread(target=self.monitor, daemon=True, args=(process,)).start()
+        self.attach(process[1])
+
+    def is_running(self, processName):
+        try:
+            tasks = subprocess.check_output(['tasklist'], shell=True)
+            return processName in str(tasks)
+        except Exception as e:
+            logTextBox.append(f"[Error]{e}")
+            return False
+
+    def monitor(self, process):
+        global running
+        while True:
+            if keyboard.is_pressed(Settings.ht2) or not self.is_running(process[0]):
+                logTextBox.append("[INFO]已退出!")
+                self.detach(process[1])
+                display.close()
+                running = False
+                break
+
+    def attach(self, pid):
+        self.process.stdin.write(f"attach -P {pid}\n")
+        self.process.stdin.flush()
+
+    def detach(self, pid):
+        self.process.stdin.write(f"detach -P {pid}\n")
+        self.process.stdin.flush()
+
+    def monitor_output(self, process):
+        global running
+        pattern = r"\]\s*(.*)"
+        while running:
+            output = self.process.stdout.readline()
+            if output and not "1:0:0:FFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFF:" in output:
+                match = re.search(pattern, output.strip())
+                if match:
+                    if process[0] in output:
+                        logTextBox.append("[Textractor]" + match.group(1))
+                        reply = translator.translate(match.group(1))
+                        logTextBox.append("[Translated]" + reply)
+                        display.updateSubtitle(reply)
+                    else:
+                        logTextBox.append(match.group(1))
+
 class Settings:
     size = None
     alpha = None
-    ht1 = None
-    ht2 = None
+    ht1 = ''
+    ht2 = ''
+    text_extraction_mode = None
+    tpath = ''
     translate_method = None
     apikey = ''
     model = ''
@@ -168,6 +242,10 @@ alpha: "{Settings.alpha}"
 captureHotkey: "{Settings.ht1}"
 # 停止热键
 pauseHotkey: "{Settings.ht2}"
+# 文字提取方式 0为OCR 1为Textractor
+Text_Extraction_Mode: {Settings.text_extraction_mode}
+# TextractorCLI.exe的文件地址
+TextractorPath: "{Settings.tpath}"
 # 翻译方式
 Method: {Settings.translate_method}
 # GPT APIKEY
@@ -184,13 +262,17 @@ def loadCfg():
     default_config = '''# 字幕字号
 size: 36
 # 字幕文字颜色和透明度 前面三个是rgb数值 后面是透明度0-100 越高越不透明
-alpha: "color:rgba(255,0,0,100);"
+alpha: "color:rgba(255,0,0,255);"
 # 截图热键
 captureHotkey: "w"
 # 停止热键
 pauseHotkey: "q"
+# 文字提取方式 0为OCR 1为Textractor
+Text_Extraction_Mode: 0
+# TextractorCLI.exe的文件地址
+TextractorPath: ""
 # 翻译方式
-Method: 0
+Method: 1
 # ApiKey
 ApiKey: "Put your api key here if you enable gptapi"
 # 模型名称
@@ -207,6 +289,8 @@ ServerUrl: "https://api-free.deepl.com"'''
             Settings.alpha = config["alpha"]
             Settings.ht1 = config["captureHotkey"]
             Settings.ht2 = config["pauseHotkey"]
+            Settings.text_extraction_mode = int(config["Text_Extraction_Mode"])
+            Settings.tpath = config["TextractorPath"]
             Settings.translate_method = int(config["Method"])
             Settings.apikey = config["ApiKey"]
             Settings.model = config["Model"]
@@ -307,6 +391,7 @@ class GetAreaInfo(QWidget):
         self.close()
         self.update()
         window.showNormal()
+        os.remove("temp.png")
 
     def paintEvent(self, event):
         if self.startPos and self.endPos:
@@ -347,6 +432,39 @@ class SettingsApp(QWidget):
         self.ht2.setText(Settings.ht2)
         self.layout.addWidget(self.label_ht2)
         self.layout.addWidget(self.ht2)
+
+        self.lcb = QLabel("文字提取方式")
+        self.cb1 = QComboBox(self)
+        self.cb1.addItem('OCR')
+        self.cb1.addItem('Textractor')
+        self.cb1.setCurrentIndex(Settings.text_extraction_mode)
+        self.cb1.currentIndexChanged.connect(self.on_text_extraction_mode_changed)
+        self.layout.addWidget(self.lcb)
+        self.layout.addWidget(self.cb1)
+
+        self.stacked_widget1 = QStackedWidget(self)
+        self.layout.addWidget(self.stacked_widget1)
+        self.p0 = QWidget()
+        self.p0_layout = QVBoxLayout(self.p0)
+        self.msg1 = QLabel("该选项不需要设置捏~")
+        self.msg2 = QLabel("在速度和效率上更推荐Textractor")
+        self.p0_layout.addWidget(self.msg1)
+        self.p0_layout.addWidget(self.msg2)
+        self.p1 = QWidget()
+        self.p1_layout = QVBoxLayout(self.p1)
+        self.label_path = QLabel("TextractorCLI.exe的地址")
+        self.path = QLineEdit()
+        self.path.setText(Settings.tpath)
+        self.browse_button = QPushButton("选取")
+        self.browse_button.clicked.connect(self.open_file_dialog)
+        topLayout = QHBoxLayout()
+        topLayout.addWidget(self.path)
+        topLayout.addWidget(self.browse_button)
+        self.p1_layout.addWidget(self.label_path)
+        self.p1_layout.addLayout(topLayout)
+
+        self.stacked_widget1.addWidget(self.p0)
+        self.stacked_widget1.addWidget(self.p1)
 
         self.label_cb = QLabel("翻译方式")
         self.cb = QComboBox(self)
@@ -409,17 +527,29 @@ class SettingsApp(QWidget):
         self.layout.addWidget(self.save_button)
 
         self.on_translate_method_changed(self.cb.currentIndex())
+        self.on_text_extraction_mode_changed(self.cb1.currentIndex())
 
         self.setLayout(self.layout)
 
     def on_translate_method_changed(self, index):
         self.stacked_widget.setCurrentIndex(index)
 
+    def on_text_extraction_mode_changed(self, index):
+        self.stacked_widget1.setCurrentIndex(index)
+
+    def open_file_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select TextractorCLI.exe")
+
+        if file_path:
+            self.path.setText(file_path)
+
     def save(self):
         Settings.size = int(self.size.text())
         Settings.alpha = self.alpha.text()
         Settings.ht1 = self.ht1.text()
         Settings.ht2 = self.ht2.text()
+        Settings.tpath = self.path.text()
+        Settings.text_extraction_mode = int(self.cb1.currentIndex())
         Settings.translate_method = int(self.cb.currentIndex())
         Settings.apikey = self.apikey.text()
         Settings.model = self.model.text()
@@ -427,6 +557,68 @@ class SettingsApp(QWidget):
         Settings.serverurl = self.serverurl.text()
         writeCfg()
         QMessageBox.information(self, "保存成功", "保存成功,某些设置可能需要重启软件才能启用")
+
+class AttachProcessDialog(QDialog):
+    def __init__(self, processes_map, parent=None):
+        super(AttachProcessDialog, self).__init__(parent)
+        self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+        self.processes_map = processes_map
+        self.setWindowTitle("SELECT_PROCESS")
+        self.label = QLabel("选择进程")
+        self.processList = QListView()
+        self.processEdit = QLineEdit()
+        self.okButton = QPushButton("OK")
+        self.cancelButton = QPushButton("Cancel")
+
+        self.model = QStandardItemModel(self)
+        self.processList.setModel(self.model)
+
+        transparent = QPixmap(100, 100)
+        transparent.fill(Qt.transparent)
+        for process in self.processes_map.keys():
+            item = QStandardItem(process)
+            item.setEditable(False)
+            self.model.appendRow(item)
+
+        self.okButton.clicked.connect(self.accept)
+        self.cancelButton.clicked.connect(self.reject)
+        self.processList.clicked.connect(self.onProcessClicked)
+        self.processList.doubleClicked.connect(self.accept)
+        self.processEdit.textEdited.connect(self.onProcessEdited)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.label)
+        layout.addWidget(self.processList)
+        layout.addWidget(self.processEdit)
+        layout.addWidget(self.okButton)
+        layout.addWidget(self.cancelButton)
+        self.setLayout(layout)
+
+    def onProcessClicked(self, index):
+        self.processEdit.setText(self.model.itemFromIndex(index).text())
+
+    def onProcessEdited(self, text):
+        for i in range(self.model.rowCount()):
+            self.processList.setRowHidden(i, text.lower() not in self.model.item(i).text().lower())
+
+    def selectedProcess(self):
+        return self.processEdit.text(), self.processes_map[self.processEdit.text()]
+
+def get_all_processes():
+    processes_map = {}
+    files = []
+
+    for process in psutil.process_iter(attrs=['pid', 'name', 'exe']):
+        try:
+            exe_path = process.info['exe']
+            if exe_path and "\\Windows\\" not in exe_path:
+                file_name = os.path.basename(exe_path)
+                if file_name not in files:
+                    processes_map[file_name] = process.info["pid"]
+                    files.append(file_name)
+        except:
+            pass
+    return processes_map
 
 def buttonClick():
     global window2
@@ -458,18 +650,31 @@ def messageBox(title, message):
 
 def run():
     global running, display
-    if not captureSize.top:
+    conditions = not T or not O
+    if Settings.text_extraction_mode != 0:
+        conditions = not T or not TE
+    if not captureSize.top and Settings.text_extraction_mode == 0:
         messageBox(title="警告", message="你没有选择截图区域!")
     elif running:
         messageBox(title="警告", message="程序已经在运行中！不要重复点击!")
-    elif not T or not O:
-        messageBox(title="警告", message="Translator或OCR初始化失败!")
+    elif conditions:
+        messageBox(title="警告", message="Translator或OCR/Textractor初始化失败!")
     else:
-        running = True
-        window.showMinimized()
-        logTextBox.append("[INFO]程序开始运行")
-        display = SubtitleApp()
-        Thread(target=monitor, daemon=True).start()
+        if Settings.text_extraction_mode == 0:
+            running = True
+            window.showMinimized()
+            logTextBox.append("[INFO]程序开始运行")
+            display = SubtitleApp()
+            Thread(target=monitor, daemon=True).start()
+        else:
+            dialog = AttachProcessDialog(get_all_processes())
+            if dialog.exec_():
+                running = True
+                window.showMinimized()
+                logTextBox.append("[INFO]程序开始运行")
+                display = SubtitleApp()
+                Process = dialog.selectedProcess()
+                textractor.run(Process)
 
 def monitor():
     global running
@@ -495,8 +700,11 @@ class Main:
         self.Init()
 
     def InitFunctions(self):
-        global translator, ocr
-        ocr = OCR()
+        global translator, ocr, textractor
+        if Settings.text_extraction_mode == 0:
+            ocr = OCR()
+        else:
+            textractor = Textractor()
         if Settings.translate_method == 1:
             logTextBox.append("[INFO]您正在使用OpenAI GPT API翻译模式")
             translator = apitranslator()
