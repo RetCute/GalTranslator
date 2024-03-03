@@ -208,17 +208,20 @@ class Textractor:
         global running
         pattern = r"\]\s*(.*)"
         while running:
-            output = self.process.stdout.readline()
-            if output and not "1:0:0:FFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFF:" in output:
-                match = re.search(pattern, output.strip())
-                if match:
-                    if process[0] in output:
-                        logTextBox.append("[Textractor]" + match.group(1))
-                        reply = translator.translate(match.group(1))
-                        logTextBox.append("[Translated]" + reply)
-                        display.updateSubtitle(reply)
-                    else:
-                        logTextBox.append(match.group(1))
+            try:
+                output = self.process.stdout.readline()
+                if output and not "1:0:0:FFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFF:" in output:
+                    match = re.search(pattern, output.strip())
+                    if match:
+                        if process[0] in output:
+                            logTextBox.append("[Textractor]" + match.group(1))
+                            reply = translator.translate(match.group(1))
+                            logTextBox.append("[Translated]" + reply)
+                            display.updateSubtitle(reply)
+                        else:
+                            logTextBox.append(match.group(1))
+            except Exception as e:
+                logTextBox.append("[Error]" + str(e))
 
 class Settings:
     size = None
@@ -679,18 +682,22 @@ def run():
 def monitor():
     global running
     while True:
-        if keyboard.is_pressed(Settings.ht1):
-            ImageGrab.grab((captureSize.left, captureSize.top, captureSize.right, captureSize.bottom)).save('now.png')
-            text = ocr.readText("now.png")
-            logTextBox.append("[OCR]"+text)
-            reply = translator.translate(text)
-            logTextBox.append("[Translated]"+reply)
-            display.updateSubtitle(reply)
-        elif keyboard.is_pressed(Settings.ht2):
-            logTextBox.append("已退出!")
-            display.close()
-            running = False
-            break
+        try:
+            if keyboard.is_pressed(Settings.ht1):
+                ImageGrab.grab((captureSize.left, captureSize.top, captureSize.right, captureSize.bottom)).save('now.png')
+                text = ocr.readText("now.png")
+                logTextBox.append("[OCR]"+text)
+                reply = translator.translate(text)
+                logTextBox.append("[Translated]"+reply)
+                display.updateSubtitle(reply)
+            elif keyboard.is_pressed(Settings.ht2):
+                logTextBox.append("已退出!")
+                display.close()
+                running = False
+                break
+        except Exception as e:
+            logTextBox.append("[Error]" + str(e))
+
 
 class Main:
     def __init__(self):
