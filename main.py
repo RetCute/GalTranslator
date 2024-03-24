@@ -60,7 +60,7 @@ class webTranslatorThread(QThread):
             logTextBox.append("[INFO]请在100s内登录你的ChatGPT账号")
             self.translator.reply_cnt = 0
             options = undetected_chromedriver.ChromeOptions()
-            self.translator.driver = undetected_chromedriver.Chrome(options=options)
+            self.translator.driver = undetected_chromedriver.Chrome(options=options, browser_executable_path=Settings.bp)
             self.translator.driver.get("https://chat.openai.com/auth/login")
             WebDriverWait(self.translator.driver, timeout=100).until(EC.url_to_be("https://chat.openai.com/"))
             logTextBox.append("[INFO]Translator初始化成功")
@@ -230,6 +230,7 @@ class Settings:
     ht2 = ''
     text_extraction_mode = None
     tpath = ''
+    bp = ''
     translate_method = None
     apikey = ''
     model = ''
@@ -251,6 +252,8 @@ Text_Extraction_Mode: {Settings.text_extraction_mode}
 TextractorPath: "{Settings.tpath}"
 # 翻译方式
 Method: {Settings.translate_method}
+# Google浏览器的文件地址
+Browser_Path: "{Settings.bp}"
 # GPT APIKEY
 ApiKey: "{Settings.apikey}"
 # GPT模型名称
@@ -276,9 +279,11 @@ Text_Extraction_Mode: 0
 TextractorPath: ""
 # 翻译方式
 Method: 1
-# ApiKey
+# Google浏览器的文件地址
+Browser_Path: ""
+# GPTApiKey
 ApiKey: "Put your api key here if you enable gptapi"
-# 模型名称
+# GPT模型名称
 Model: "gpt-3.5-turbo"
 # DeepL AuthKey
 AuthKey: "Put your authkey here if you enable deeplapi"
@@ -295,6 +300,7 @@ ServerUrl: "https://api-free.deepl.com"'''
             Settings.text_extraction_mode = int(config["Text_Extraction_Mode"])
             Settings.tpath = config["TextractorPath"]
             Settings.translate_method = int(config["Method"])
+            Settings.bp = config["Browser_Path"]
             Settings.apikey = config["ApiKey"]
             Settings.model = config["Model"]
             Settings.authkey = config["AuthKey"]
@@ -459,7 +465,7 @@ class SettingsApp(QWidget):
         self.path = QLineEdit()
         self.path.setText(Settings.tpath)
         self.browse_button = QPushButton("选取")
-        self.browse_button.clicked.connect(self.open_file_dialog)
+        self.browse_button.clicked.connect(lambda: self.open_file_dialog("Select TextractorCLI.exe", self.path))
         topLayout = QHBoxLayout()
         topLayout.addWidget(self.path)
         topLayout.addWidget(self.browse_button)
@@ -484,12 +490,22 @@ class SettingsApp(QWidget):
 
         self.page0 = QWidget()
         self.page0_layout = QVBoxLayout(self.page0)
-        self.label_msg1 = QLabel("该选项不需要设置捏~")
+        self.label_msg1 = QLabel("Chrome浏览器文件地址")
+        self.path1 = QLineEdit()
+        self.path1.setText(Settings.bp)
+        self.browse = QPushButton("选取")
+        self.browse.clicked.connect(lambda: self.open_file_dialog("Select Chrome.exe", self.path1))
+        topLayout1 = QHBoxLayout()
+        topLayout1.addWidget(self.path1)
+        topLayout1.addWidget(self.browse)
+        self.p1_layout.addWidget(self.label_path)
+        self.p1_layout.addLayout(topLayout)
         self.label_msg2 = QLabel('觉得不错的话请Github给个Star<a href="https://github.com/RetCute/GalTranslator">Github</a>')
         self.label_msg2.setOpenExternalLinks(True)
         self.label_msg3 = QLabel('或者B站三连支持一下UP!<a href="https://space.bilibili.com/441114907">Bilibili</a>')
         self.label_msg3.setOpenExternalLinks(True)
         self.page0_layout.addWidget(self.label_msg1)
+        self.page0_layout.addLayout(topLayout1)
         self.page0_layout.addWidget(self.label_msg2)
         self.page0_layout.addWidget(self.label_msg3)
 
@@ -540,11 +556,11 @@ class SettingsApp(QWidget):
     def on_text_extraction_mode_changed(self, index):
         self.stacked_widget1.setCurrentIndex(index)
 
-    def open_file_dialog(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select TextractorCLI.exe")
+    def open_file_dialog(self, msg, path):
+        file_path, _ = QFileDialog.getOpenFileName(self, msg)
 
         if file_path:
-            self.path.setText(file_path)
+            path.setText(file_path)
 
     def save(self):
         Settings.size = int(self.size.text())
@@ -553,6 +569,7 @@ class SettingsApp(QWidget):
         Settings.ht2 = self.ht2.text()
         Settings.tpath = self.path.text()
         Settings.text_extraction_mode = int(self.cb1.currentIndex())
+        Settings.bp = self.path1.text()
         Settings.translate_method = int(self.cb.currentIndex())
         Settings.apikey = self.apikey.text()
         Settings.model = self.model.text()
@@ -751,4 +768,7 @@ class Main:
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    Main()
+    try:
+        Main()
+    except Exception as e:
+        print(str(e))
