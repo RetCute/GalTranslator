@@ -1,7 +1,6 @@
 import os
 import re
 import subprocess
-
 import psutil
 from yaml import safe_load
 from PyQt5.QtCore import QRect, QThread, Qt
@@ -174,7 +173,7 @@ class Textractor:
             TE = False
 
     def run(self, process):
-        Thread(target=self.monitor_output, daemon=True, args=(process, )).start()
+        Thread(target=self.monitor_output, daemon=True).start()
         Thread(target=self.monitor, daemon=True, args=(process,)).start()
         self.attach(process[1])
 
@@ -193,6 +192,7 @@ class Textractor:
                 logTextBox.append("[INFO]已退出!")
                 self.detach(process[1])
                 display.close()
+                hookcodeapp.close()
                 running = False
                 break
 
@@ -204,24 +204,55 @@ class Textractor:
         self.process.stdin.write(f"detach -P {pid}\n")
         self.process.stdin.flush()
 
-    def monitor_output(self, process):
+    def monitor_output(self):
         global running
-        pattern = r"\]\s*(.*)"
         while running:
             try:
-                output = self.process.stdout.readline()
-                if output and not "1:0:0:FFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFF:" in output:
-                    match = re.search(pattern, output.strip())
-                    if match:
-                        if process[0] in output:
-                            logTextBox.append("[Textractor]" + match.group(1))
-                            reply = translator.translate(match.group(1))
-                            logTextBox.append("[Translated]" + reply)
-                            display.updateSubtitle(reply)
-                        else:
-                            logTextBox.append(match.group(1))
+                output = self.process.stdout.readline().strip()
+                if output:
+                    hookcodeapp.processText(output)
             except Exception as e:
                 logTextBox.append("[Error]" + str(e))
+
+class HookcodeApp(QWidget):
+    def __init__(self):
+        QtWidgets.QWidget.__init__(self)
+        layout = QtWidgets.QVBoxLayout(self)
+        self.setWindowTitle("HookCode Selector")
+        self.setLayout(layout)
+        self.setFixedSize(400, 400)
+        self.messages = {}
+        self.comboBox = QtWidgets.QComboBox()
+        layout.addWidget(self.comboBox)
+        self.textEdit = QtWidgets.QTextEdit()
+        self.textEdit.setReadOnly(True)
+        layout.addWidget(self.textEdit)
+        self.comboBox.currentIndexChanged.connect(self.updateTextEdit)
+        self.show()
+
+    def processText(self, text):
+        if text.startswith("[") and "]" in text:
+            end_index = text.index("]")
+            key = text[1:end_index]
+            value = "[Textractor]"+text[end_index + 2:]
+            if key not in self.messages:
+                self.comboBox.addItem(key)
+                self.messages[key] = []
+            self.messages[key].append(value)
+            if self.comboBox.currentText() == key:
+                self.textEdit.append(value)
+                reply = translator.translate(value)
+                display.updateSubtitle(reply)
+
+    def updateHookcode(self, item):
+        self.comboBox.addItem(item)
+
+    def updateTextEdit(self):
+        currentKey = self.comboBox.currentText()
+        if currentKey in self.messages:
+            self.textEdit.setText("\n".join(self.messages[currentKey]))
+        else:
+            self.textEdit.clear()
 
 class Settings:
     size = None
@@ -669,7 +700,7 @@ def messageBox(title, message):
     msg.exec_()
 
 def run():
-    global running, display
+    global running, display, hookcodeapp
     conditions = not T or not O
     if Settings.text_extraction_mode != 0:
         conditions = not T or not TE
@@ -694,6 +725,7 @@ def run():
                 logTextBox.append("[INFO]程序开始运行")
                 display = SubtitleApp()
                 Process = dialog.selectedProcess()
+                hookcodeapp = HookcodeApp()
                 textractor.run(Process)
 
 def monitor():
@@ -714,7 +746,6 @@ def monitor():
                 break
         except Exception as e:
             logTextBox.append("[Error]" + str(e))
-
 
 class Main:
     def __init__(self):
