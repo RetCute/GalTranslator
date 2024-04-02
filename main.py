@@ -1,5 +1,4 @@
 import os
-import re
 import subprocess
 import psutil
 from yaml import safe_load
@@ -9,6 +8,7 @@ from PyQt5.QtWidgets import QWidget, QLabel, QApplication, QVBoxLayout, QLineEdi
     QMainWindow, QStackedWidget, QTextEdit, QHBoxLayout, QFileDialog, QListView, QDialog
 from PyQt5 import QtWidgets, QtCore, QtGui
 import sys
+import traceback
 from PIL import Image, ImageGrab, ImageEnhance
 from time import sleep
 from openai import OpenAI
@@ -42,8 +42,8 @@ class apitranslator:
             translated_text = response.choices[0].message.content
             self.messages.append({"role": "assistant", "content": translated_text})
             return translated_text
-        except Exception as e:
-            logTextBox.append(str(e))
+        except Exception:
+            updateLog("Error", traceback.format_exc())
             return "Error"
 
 class webTranslatorThread(QThread):
@@ -55,16 +55,17 @@ class webTranslatorThread(QThread):
     def run(self):
         global T
         try:
-            logTextBox.append("[INFO]初始化ChatGPT Web中....")
-            logTextBox.append("[INFO]请在100s内登录你的ChatGPT账号")
+            updateLog("Info", "初始化ChatGPT Web中....")
+            updateLog("Info", "请在100s内登录你的ChatGPT账号")
             self.translator.reply_cnt = 0
             options = undetected_chromedriver.ChromeOptions()
             self.translator.driver = undetected_chromedriver.Chrome(options=options, browser_executable_path=Settings.bp)
             self.translator.driver.get("https://chat.openai.com/auth/login")
             WebDriverWait(self.translator.driver, timeout=100).until(EC.url_to_be("https://chat.openai.com/"))
-            logTextBox.append("[INFO]Translator初始化成功")
-        except Exception as e:
-            logTextBox.append("[Error]Translator初始化失败:" + str(e))
+            updateLog("Info", "Translator初始化成功")
+        except Exception:
+            updateLog("Error", "Translator初始化失败:")
+            updateLog("", traceback.format_exc())
             T = False
 
 class webtranslator:
@@ -72,7 +73,7 @@ class webtranslator:
         global T
         self.driver = None
         if not os.path.exists("chromedriver.exe"):
-            logTextBox.append("[Error]未找到chromedriver 请下载对应版本的driver丢到目录下 或者切换其他翻译方式")
+            updateLog("Error", "未找到chromedriver 请下载对应版本的driver丢到目录下 或者切换其他翻译方式")
             T = False
         else:
             self.init_thread = webTranslatorThread(self)
@@ -119,8 +120,8 @@ class deepltranslator:
     def translate(self, text):
         try:
             return self.translator.translate_text(text, target_lang="zh").text
-        except Exception as e:
-            logTextBox.append(str(e))
+        except Exception:
+            updateLog("Error", traceback.format_exc())
             return "Error"
 
 class OcrThread(QThread):
@@ -131,11 +132,12 @@ class OcrThread(QThread):
     def run(self):
         global O
         try:
-            logTextBox.append("[INFO]初始化OCR中....")
+            updateLog("Info", "初始化OCR中....")
             self.ocr.ocr = PaddleOCR(use_angle_cls=True, lang="japan")
-            logTextBox.append("[INFO]OCR已启动")
-        except Exception as e:
-            logTextBox.append("[Error]OCR初始化失败:" + str(e))
+            updateLog("Info", "OCR已启动")
+        except Exception:
+            updateLog("Error", "OCR初始化失败:")
+            updateLog("", traceback.format_exc())
             O = False
 
 class OCR:
@@ -155,7 +157,7 @@ class OCR:
 
 class Textractor:
     def __init__(self):
-        logTextBox.append("[Info]初始化Textractor中")
+        updateLog("Info", "初始化Textractor中")
         if os.path.exists(Settings.tpath):
             self.process = subprocess.Popen(
                 Settings.tpath,
@@ -166,10 +168,10 @@ class Textractor:
                 creationflags=0x08000000,
                 encoding='utf-16-le'
             )
-            logTextBox.append("[Info]TextractorCLI.exe Successfully Launched")
+            updateLog("Info", "TextractorCLI.exe Successfully Launched")
         else:
             global TE
-            logTextBox.append("[Error]TextractorCLI.exe Not Found")
+            updateLog("Error", "TextractorCLI.exe Not Found")
             TE = False
 
     def run(self, process):
@@ -181,15 +183,15 @@ class Textractor:
         try:
             tasks = subprocess.check_output(['tasklist'], shell=True)
             return processName in str(tasks)
-        except Exception as e:
-            logTextBox.append(f"[Error]{e}")
+        except Exception:
+            updateLog("Error", traceback.format_exc())
             return False
 
     def monitor(self, process):
         global running
         while True:
             if keyboard.is_pressed(Settings.ht2) or not self.is_running(process[0]):
-                logTextBox.append("[INFO]已退出!")
+                updateLog("Info", "已退出!")
                 self.detach(process[1])
                 display.close()
                 hookcodeapp.close()
@@ -211,8 +213,8 @@ class Textractor:
                 output = self.process.stdout.readline().strip()
                 if output:
                     hookcodeapp.processText(output)
-            except Exception as e:
-                logTextBox.append("[Error]" + str(e))
+            except Exception:
+                updateLog("Error", traceback.format_exc())
 
 class HookcodeApp(QWidget):
     def __init__(self):
@@ -322,7 +324,7 @@ AuthKey: "Put your authkey here if you enable deeplapi"
 ServerUrl: "https://api-free.deepl.com"'''
     while True:
         try:
-            logTextBox.append("[INFO]读取配置文件中....")
+            updateLog("Info", "读取配置文件中....")
             config = safe_load(open('config.yml', 'r', errors='ignore', encoding="utf-8"))
             Settings.size = int(config["size"])
             Settings.alpha = config["alpha"]
@@ -336,10 +338,10 @@ ServerUrl: "https://api-free.deepl.com"'''
             Settings.model = config["Model"]
             Settings.authkey = config["AuthKey"]
             Settings.serverurl = config["ServerUrl"]
-            logTextBox.append("[INFO]成功!")
+            updateLog("Info", "成功!")
             break
         except:
-            logTextBox.append("[Error]加载配置文件失败,写入默认配置中....")
+            updateLog("Error", "加载配置文件失败,写入默认配置中....")
             open('config.yml', 'w', encoding="utf-8").write(default_config)
             sleep(2)
 
@@ -699,6 +701,9 @@ def messageBox(title, message):
     msg.setStandardButtons(QMessageBox.Ok)
     msg.exec_()
 
+def updateLog(msg_type, msg):
+    logTextBox.append(f"[{msg_type}]{msg}")
+
 def run():
     global running, display, hookcodeapp
     conditions = not T or not O
@@ -714,7 +719,7 @@ def run():
         if Settings.text_extraction_mode == 0:
             running = True
             window.showMinimized()
-            logTextBox.append("[INFO]程序开始运行")
+            updateLog("Info", "程序开始运行")
             display = SubtitleApp()
             Thread(target=monitor, daemon=True).start()
         else:
@@ -722,7 +727,7 @@ def run():
             if dialog.exec_():
                 running = True
                 window.showMinimized()
-                logTextBox.append("[INFO]程序开始运行")
+                updateLog("Info", "程序开始运行")
                 display = SubtitleApp()
                 Process = dialog.selectedProcess()
                 hookcodeapp = HookcodeApp()
@@ -735,17 +740,17 @@ def monitor():
             if keyboard.is_pressed(Settings.ht1):
                 ImageGrab.grab((captureSize.left, captureSize.top, captureSize.right, captureSize.bottom)).save('now.png')
                 text = ocr.readText("now.png")
-                logTextBox.append("[OCR]"+text)
+                updateLog("OCR", text)
                 reply = translator.translate(text)
-                logTextBox.append("[Translated]"+reply)
+                updateLog("Translated", reply)
                 display.updateSubtitle(reply)
             elif keyboard.is_pressed(Settings.ht2):
-                logTextBox.append("已退出!")
+                updateLog("Info", "已退出!")
                 display.close()
                 running = False
                 break
-        except Exception as e:
-            logTextBox.append("[Error]" + str(e))
+        except Exception:
+            updateLog("Error", traceback.format_exc())
 
 class Main:
     def __init__(self):
@@ -761,19 +766,19 @@ class Main:
         else:
             textractor = Textractor()
         if Settings.translate_method == 1:
-            logTextBox.append("[INFO]您正在使用OpenAI GPT API翻译模式")
+            updateLog("Info", "您正在使用OpenAI GPT API翻译模式")
             translator = apitranslator()
         elif Settings.translate_method == 2:
-            logTextBox.append("[INFO]您正在使用DeepL API翻译模式")
+            updateLog("Info", "您正在使用DeepL API翻译模式")
             translator = deepltranslator()
         else:
-            logTextBox.append("[INFO]您正在使用ChatGPT Web翻译模式")
+            updateLog("Info", "您正在使用ChatGPT Web翻译模式")
             translator = webtranslator()
 
     def Init(self):
         global logTextBox
         self.window.setWindowTitle("GalTranslator")
-        self.window.setFixedSize(300, 300)
+        self.window.setFixedSize(350, 450)
         widget = QWidget()
         layout = QVBoxLayout()
         widget.setLayout(layout)
