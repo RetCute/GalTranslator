@@ -1,13 +1,14 @@
 import os
 import subprocess
 import psutil
+import requests
 from yaml import safe_load
-from PyQt5.QtCore import QRect, QThread, Qt
-from PyQt5.QtGui import QCursor, QPixmap, QPen, QPainter, QStandardItemModel, QStandardItem
+from PyQt5.QtCore import QRect, QThread, Qt, pyqtSignal
+from PyQt5.QtGui import QPixmap, QPen, QPainter, QStandardItemModel, QStandardItem
 from PyQt5.QtWidgets import QWidget, QLabel, QApplication, QVBoxLayout, QLineEdit, QPushButton, QMessageBox, QComboBox, \
-    QMainWindow, QStackedWidget, QTextEdit, QHBoxLayout, QFileDialog, QListView, QDialog
+    QMainWindow, QStackedWidget, QTextEdit, QHBoxLayout, QFileDialog, QListView, QDialog, QScrollArea, QSizePolicy
 from PyQt5 import QtWidgets, QtCore, QtGui
-import sys
+import sys, argparse
 import traceback
 from PIL import Image, ImageGrab, ImageEnhance
 from time import sleep
@@ -21,16 +22,21 @@ import undetected_chromedriver
 from selenium.webdriver.common.keys import Keys
 from paddleocr import PaddleOCR
 import deepl
+import win32gui
+import win32process
 
+Version = "V1.0"
 running = False
-O = T = TE = True
+O = T = TE = False
 
 class apitranslator:
     def __init__(self):
+        global T
         self.client = OpenAI(api_key=Settings.apikey)
         self.messages = [
                     {"role": "system", "content": f"请将下面这段日文符合语气地优美地贴合原意地翻译为中文并且结合我消息记录的前几个句子进行翻译只给出翻译后的结果即可无需添加其他东西"},
                           ]
+        T = True
 
     def translate(self, text):
         try:
@@ -56,25 +62,22 @@ class webTranslatorThread(QThread):
         global T
         try:
             updateLog("Info", "初始化ChatGPT Web中....")
-            updateLog("Info", "请在100s内登录你的ChatGPT账号")
             self.translator.reply_cnt = 0
             options = undetected_chromedriver.ChromeOptions()
             self.translator.driver = undetected_chromedriver.Chrome(options=options, browser_executable_path=Settings.bp)
-            self.translator.driver.get("https://chat.openai.com/auth/login")
-            WebDriverWait(self.translator.driver, timeout=100).until(EC.url_to_be("https://chat.openai.com/"))
+            self.translator.driver.get("https://chat.openai.com/")
+            WebDriverWait(self.translator.driver, timeout=100).until(EC.presence_of_element_located((By.CLASS_NAME, "group")))
             updateLog("Info", "Translator初始化成功")
+            T = True
         except Exception:
             updateLog("Error", "Translator初始化失败:")
             updateLog("", traceback.format_exc())
-            T = False
 
 class webtranslator:
     def __init__(self):
-        global T
         self.driver = None
         if not os.path.exists("chromedriver.exe"):
             updateLog("Error", "未找到chromedriver 请下载对应版本的driver丢到目录下 或者切换其他翻译方式")
-            T = False
         else:
             self.init_thread = webTranslatorThread(self)
             self.init_thread.start()
@@ -115,7 +118,9 @@ class webtranslator:
 class deepltranslator:
     def __init__(self):
         #如果是deepl pro的话 记得把server_url改为https://api.deepl-pro.com
+        global T
         self.translator = deepl.Translator(auth_key=Settings.authkey, server_url=Settings.serverurl)
+        T = True
 
     def translate(self, text):
         try:
@@ -135,10 +140,10 @@ class OcrThread(QThread):
             updateLog("Info", "初始化OCR中....")
             self.ocr.ocr = PaddleOCR(use_angle_cls=True, lang="japan")
             updateLog("Info", "OCR已启动")
+            O = True
         except Exception:
             updateLog("Error", "OCR初始化失败:")
             updateLog("", traceback.format_exc())
-            O = False
 
 class OCR:
     def __init__(self):
@@ -157,6 +162,7 @@ class OCR:
 
 class Textractor:
     def __init__(self):
+        global TE
         updateLog("Info", "初始化Textractor中")
         if os.path.exists(Settings.tpath):
             self.process = subprocess.Popen(
@@ -169,12 +175,21 @@ class Textractor:
                 encoding='utf-16-le'
             )
             updateLog("Info", "TextractorCLI.exe Successfully Launched")
+            TE = True
         else:
-            global TE
             updateLog("Error", "TextractorCLI.exe Not Found")
-            TE = False
 
     def run(self, process):
+        if self.process.poll():
+            self.process = subprocess.Popen(
+                Settings.tpath,
+                shell=False,
+                stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=0x08000000,
+                encoding='utf-16-le'
+            )
         Thread(target=self.monitor_output, daemon=True).start()
         Thread(target=self.monitor, daemon=True, args=(process,)).start()
         self.attach(process[1])
@@ -193,7 +208,8 @@ class Textractor:
             if keyboard.is_pressed(Settings.ht2) or not self.is_running(process[0]):
                 updateLog("Info", "已退出!")
                 self.detach(process[1])
-                display.close()
+                self.process.kill()
+                display.exit()
                 hookcodeapp.close()
                 running = False
                 break
@@ -216,45 +232,112 @@ class Textractor:
             except Exception:
                 updateLog("Error", traceback.format_exc())
 
+
+class MessageWidget(QWidget):
+    def __init__(self, text1, text2, key, parent=None):
+        super(MessageWidget, self).__init__(parent)
+        self.key = key
+        vlayout = QVBoxLayout()
+        vlayout.setSpacing(0)
+        vlayout.setContentsMargins(0, 0, 0, 0)
+        self.label1 = QLabel("[Textractor]"+text1)
+        self.label1.setWordWrap(True)
+        self.label1.setFixedWidth(350)
+        self.label1.setContentsMargins(0, 0, 0, 0)
+        vlayout.addWidget(self.label1)
+        self.label2 = QLabel("[Translated]"+text2)
+        self.label2.setWordWrap(True)
+        self.label2.setFixedWidth(350)
+        self.label2.setContentsMargins(0, 0, 0, 0)
+        vlayout.addWidget(self.label2)
+        self.button = QPushButton("Update")
+        self.button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        hlayout = QHBoxLayout(self)
+        hlayout.addLayout(vlayout)
+        hlayout.addWidget(self.button)
+
 class HookcodeApp(QWidget):
+    message_signal = pyqtSignal(str, str, str)
     def __init__(self):
         QtWidgets.QWidget.__init__(self)
         layout = QtWidgets.QVBoxLayout(self)
         self.setWindowTitle("HookCode Selector")
         self.setLayout(layout)
-        self.setFixedSize(400, 400)
+        self.setFixedSize(500, 500)
         self.messages = {}
+        self.message_signal.connect(self.addMessage)
         self.comboBox = QtWidgets.QComboBox()
         layout.addWidget(self.comboBox)
-        self.textEdit = QtWidgets.QTextEdit()
-        self.textEdit.setReadOnly(True)
-        layout.addWidget(self.textEdit)
-        self.comboBox.currentIndexChanged.connect(self.updateTextEdit)
+        self.scrollArea = QScrollArea()
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollAreaWidget = QWidget()
+        self.scrollAreaLayout = QVBoxLayout(self.scrollAreaWidget)
+        self.scrollAreaLayout.setSpacing(0)
+        self.scrollArea.setWidget(self.scrollAreaWidget)
+        layout.addWidget(self.scrollArea)
+        self.comboBox.currentIndexChanged.connect(self.updateScrollArea)
         self.show()
 
     def processText(self, text):
         if text.startswith("[") and "]" in text:
             end_index = text.index("]")
             key = text[1:end_index]
-            value = "[Textractor]"+text[end_index + 2:]
+            value = text[end_index + 2:]
             if key not in self.messages:
-                self.comboBox.addItem(key)
+                self.updateHookcode(key)
                 self.messages[key] = []
-            self.messages[key].append(value)
             if self.comboBox.currentText() == key:
-                self.textEdit.append(value)
                 reply = translator.translate(value)
+                self.message_signal.emit(key, value, reply)
                 display.updateSubtitle(reply)
+                self.storeMsg(key, value, reply)
+            else:
+                self.storeMsg(key, value, "未翻译")
+
+    def addMessage(self, key, text, text2="未翻译"):
+        if self.scrollAreaLayout.count() > 0:
+            lastItem = self.scrollAreaLayout.itemAt(self.scrollAreaLayout.count() - 1)
+            if lastItem.spacerItem():
+                self.scrollAreaLayout.takeAt(self.scrollAreaLayout.count() - 1)
+        messageWidget = MessageWidget(text, text2, key)
+        messageWidget.button.clicked.connect(lambda: self.updateSubtitle(messageWidget))
+        self.scrollAreaLayout.addWidget(messageWidget)
+        self.scrollAreaLayout.addStretch(1)
+        self.scrollArea.verticalScrollBar().setValue(self.scrollArea.verticalScrollBar().maximum())
+        self.scrollArea.repaint()
+
+    def updateSubtitle(self, msg):
+        if not ("未翻译" in msg.label2.text() or "Error" in msg.label2.text()):
+            display.updateSubtitle(msg.label2.text())
+        else:
+            text = msg.label1.text().replace("[Textractor]", "")
+            reply = translator.translate(text)
+            msg.label2.setText("[Translated]" + reply)
+            display.updateSubtitle(reply)
+            for dictionary in self.messages[msg.key]:
+                if text in dictionary:
+                    dictionary[text] = reply
+
+    def storeMsg(self, key, value, reply):
+        self.messages[key].append({value: reply})
 
     def updateHookcode(self, item):
-        self.comboBox.addItem(item)
+            self.comboBox.addItem(item)
 
-    def updateTextEdit(self):
+    def updateScrollArea(self):
         currentKey = self.comboBox.currentText()
-        if currentKey in self.messages:
-            self.textEdit.setText("\n".join(self.messages[currentKey]))
-        else:
-            self.textEdit.clear()
+        self.scrollAreaLayout.addStretch(1)
+        if self.scrollAreaLayout.count() > 0:
+            self.scrollAreaLayout.takeAt(self.scrollAreaLayout.count() - 1)
+        for i in reversed(range(self.scrollAreaLayout.count())):
+            widgetToRemove = self.scrollAreaLayout.itemAt(i).widget()
+            if widgetToRemove:
+                widgetToRemove.setParent(None)
+        for dictionary in self.messages.get(currentKey, []):
+            for msg1, msg2 in dictionary.items():
+                self.addMessage(currentKey, msg1, msg2)
+        self.scrollAreaWidget.setLayout(self.scrollAreaLayout)
+        self.scrollArea.verticalScrollBar().setValue(self.scrollArea.verticalScrollBar().maximum())
 
 class Settings:
     size = None
@@ -352,9 +435,9 @@ class captureSize:
     bottom = None
     rect = None
 
-class SubtitleApp(QWidget):
-    def __init__(self):
-        QtWidgets.QWidget.__init__(self)
+class SubtitleApp(QtWidgets.QWidget):
+    def __init__(self, pid=None):
+        super().__init__()
         self.setWindowFlags(QtCore.Qt.SplashScreen | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
         self.setStyleSheet("background:transparent;")
@@ -362,31 +445,98 @@ class SubtitleApp(QWidget):
         self.label.setWordWrap(True)
         self.label.setGeometry(QtCore.QRect(0, 0, 1000, 300))
         self.label.setStyleSheet(Settings.alpha)
-        font = QtGui.QFont("黑体", Settings.size)
+        self.label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        font = QtGui.QFont("Arial", Settings.size)
         font.setBold(True)
         font.setStyleStrategy(QtGui.QFont.PreferOutline)
         self.label.setFont(font)
         self.label.setText("文本字幕")
+
+        self.m_drag = False
+        self.m_DragPosition = QtCore.QPoint()
+        self.controlsVisible = False
+
+        self.keepBorderCheckbox = QtWidgets.QCheckBox("保持边框状态", self)
+        self.keepBorderCheckbox.setGeometry(QtCore.QRect(850, 270, 200, 30))
+        self.keepBorderCheckbox.setStyleSheet("""
+            QCheckBox {
+                color: white;        /* 字体颜色 */
+                font-family: Arial;  /* 字体族 */
+                font-size: 18px;     /* 字体大小 */
+                font-weight: bold;   /* 字体加粗 */
+            }
+            """)
+        self.keepBorderCheckbox.hide()
+        self.keepBorderCheckbox.stateChanged.connect(self.keepBorderStateChanged)
+
         self.show()
+        self.autoHideTimer = QtCore.QTimer(self)
+        self.autoHideTimer.setInterval(2000)
+        self.autoHideTimer.timeout.connect(self.autoHideControls)
+        if pid:
+            self.timer = QtCore.QTimer(self)
+            self.timer.timeout.connect(lambda: self.check_process_window(pid))
+            self.timer.start(1000)
+
+    def check_process_window(self, pid):
+        hwnd = get_window_handle(pid)
+        if hwnd:
+            is_minimized = win32gui.IsIconic(hwnd)
+            if is_minimized:
+                self.hide()
+            else:
+                self.show()
+
+    def exit(self):
+        self.timer.stop()
+        self.autoHideTimer.stop()
+        self.close()
 
     def updateSubtitle(self, text):
         self.label.setText(text)
 
+    def keepBorderStateChanged(self):
+        if not self.keepBorderCheckbox.isChecked():
+            self.toggleControls(forceHide=True)
+
+    def toggleControls(self, forceHide=False):
+        if self.keepBorderCheckbox.isChecked() and not forceHide:
+            self.controlsVisible = True
+            self.label.setStyleSheet(f"{Settings.alpha}; background-color: rgba(0, 0, 0, 128);")
+        else:
+            self.controlsVisible = not self.controlsVisible
+            if self.controlsVisible:
+                self.label.setStyleSheet(f"{Settings.alpha}; background-color: rgba(0, 0, 0, 128);")
+                self.keepBorderCheckbox.show()
+                self.autoHideTimer.start()
+            else:
+                self.label.setStyleSheet(f"{Settings.alpha}; background-color: rgba(0, 0, 0, 0);")
+                self.keepBorderCheckbox.hide()
+                self.autoHideTimer.stop()
+
+    def autoHideControls(self):
+        if self.controlsVisible:
+            self.toggleControls()
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == QtCore.Qt.LeftButton:
             self.m_drag = True
             self.m_DragPosition = event.globalPos() - self.pos()
             event.accept()
-            self.setCursor(QCursor(Qt.OpenHandCursor))
+            self.setCursor(QtGui.QCursor(QtCore.Qt.OpenHandCursor))
+            if not self.controlsVisible:
+                self.toggleControls()
+            else:
+                self.autoHideTimer.start()
 
     def mouseMoveEvent(self, QMouseEvent):
-        if Qt.LeftButton and self.m_drag:
+        if QtCore.Qt.LeftButton and self.m_drag:
             self.move(QMouseEvent.globalPos() - self.m_DragPosition)
             QMouseEvent.accept()
 
     def mouseReleaseEvent(self, QMouseEvent):
         self.m_drag = False
-        self.setCursor(QCursor(Qt.ArrowCursor))
+        self.setCursor(QtGui.QCursor(QtCore.Qt.ArrowCursor))
 
 class GetAreaInfo(QWidget):
     def __init__(self, png):
@@ -673,6 +823,16 @@ def get_all_processes():
             pass
     return processes_map
 
+def get_window_handle(pid):
+    def callback(hwnd, hwnds):
+        _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
+        if found_pid == pid and win32gui.IsWindowVisible(hwnd):
+            hwnds.append(hwnd)
+        return True
+    hwnds = []
+    win32gui.EnumWindows(callback, hwnds)
+    return hwnds[0] if hwnds else None
+
 def buttonClick():
     global window2
     window.showMinimized()
@@ -706,14 +866,14 @@ def updateLog(msg_type, msg):
 
 def run():
     global running, display, hookcodeapp
-    conditions = not T or not O
+    conditions = T and O
     if Settings.text_extraction_mode != 0:
-        conditions = not T or not TE
+        conditions = T and TE
     if not captureSize.top and Settings.text_extraction_mode == 0:
         messageBox(title="警告", message="你没有选择截图区域!")
     elif running:
         messageBox(title="警告", message="程序已经在运行中！不要重复点击!")
-    elif conditions:
+    elif not conditions:
         messageBox(title="警告", message="Translator或OCR/Textractor初始化失败!")
     else:
         if Settings.text_extraction_mode == 0:
@@ -728,8 +888,8 @@ def run():
                 running = True
                 window.showMinimized()
                 updateLog("Info", "程序开始运行")
-                display = SubtitleApp()
                 Process = dialog.selectedProcess()
+                display = SubtitleApp(pid=Process[1])
                 hookcodeapp = HookcodeApp()
                 textractor.run(Process)
 
@@ -751,6 +911,29 @@ def monitor():
                 break
         except Exception:
             updateLog("Error", traceback.format_exc())
+
+def CheckForUpdates():
+    version = requests.get("https://raw.githubusercontent.com/RetCute/GalTranslator/main/Version").text.strip()
+    updateLog("Info", "Checking for updates....")
+    if version != Version:
+        messageBox("更新通知", "检测到有新版本可用,请前往Github下载")
+        updateLog("Info", "New version available")
+    else:
+        updateLog("Info", "You are using the latest version")
+
+def SetProxies():
+    parser = argparse.ArgumentParser(description='设置系统代理')
+    parser.add_argument('-httpproxy', action='store', type=str, required=False,
+                        help='设置 HTTP 代理的地址和端口。')
+    parser.add_argument('-httpsproxy', action='store', type=str, required=False,
+                        help='设置 HTTPS 代理的地址和端口。')
+    args = parser.parse_args()
+    if args.httpproxy:
+        os.environ['HTTP_PROXY'] = args.httpproxy
+        print(f"HTTP 代理已设置为: {args.httpproxy}")
+    if args.httpsproxy:
+        os.environ['HTTPS_PROXY'] = args.httpsproxy
+        print(f"HTTPS 代理已设置为: {args.httpsproxy}")
 
 class Main:
     def __init__(self):
@@ -777,7 +960,7 @@ class Main:
 
     def Init(self):
         global logTextBox
-        self.window.setWindowTitle("GalTranslator")
+        self.window.setWindowTitle("ReTranslator")
         self.window.setFixedSize(350, 450)
         widget = QWidget()
         layout = QVBoxLayout()
@@ -797,14 +980,16 @@ class Main:
         logTextBox = QTextEdit()
         logTextBox.setReadOnly(True)
         layout.addWidget(logTextBox)
-        window.show()
+        window.showNormal()
+        CheckForUpdates()
         loadCfg()
         self.InitFunctions()
         app.exec_()
 
 if __name__ == "__main__":
+    SetProxies()
     app = QApplication(sys.argv)
     try:
         Main()
-    except Exception as e:
-        print(str(e))
+    except:
+        traceback.print_exc()
