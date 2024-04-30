@@ -913,13 +913,16 @@ def monitor():
             updateLog("Error", traceback.format_exc())
 
 def CheckForUpdates():
-    version = requests.get("https://raw.githubusercontent.com/RetCute/GalTranslator/main/Version").text.strip()
-    updateLog("Info", "Checking for updates....")
-    if version != Version:
-        messageBox("更新通知", "检测到有新版本可用,请前往Github下载")
-        updateLog("Info", "New version available")
-    else:
-        updateLog("Info", "You are using the latest version")
+    try:
+        version = requests.get("https://raw.githubusercontent.com/RetCute/GalTranslator/main/Version", timeout=10).text.strip()
+        updateLog("Info", "Checking for updates....")
+        if version != Version:
+            messageBox("更新通知", "检测到有新版本可用,请前往Github下载")
+            updateLog("Info", "New version available")
+        else:
+            updateLog("Info", "You are using the latest version")
+    except:
+        updateLog("Error", "检查更新失败")
 
 def SetProxies():
     parser = argparse.ArgumentParser(description='设置系统代理')
