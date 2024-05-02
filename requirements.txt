@@ -10,3 +10,4 @@ undetected-chromedriver
 paddleocr
 deepl
 pywin32
+paddlepaddle
