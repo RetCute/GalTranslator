@@ -1,3 +1,4 @@
+import importlib
 import os
 import subprocess
 import psutil
@@ -25,109 +26,10 @@ import deepl
 import win32gui
 import win32process
 
-Version = "V1.0"
+Version = "V1.1"
 running = False
-O = T = TE = False
-
-class apitranslator:
-    def __init__(self):
-        global T
-        self.client = OpenAI(api_key=Settings.apikey)
-        self.messages = [
-                    {"role": "system", "content": f"请将下面这段日文符合语气地优美地贴合原意地翻译为中文并且结合我消息记录的前几个句子进行翻译只给出翻译后的结果即可无需添加其他东西"},
-                          ]
-        T = True
-
-    def translate(self, text):
-        try:
-            self.messages.append({"role": "user", "content": f"{text}"})
-            response = self.client.chat.completions.create(
-                model=f"{Settings.model}",
-                messages=self.messages
-            )
-            translated_text = response.choices[0].message.content
-            self.messages.append({"role": "assistant", "content": translated_text})
-            return translated_text
-        except Exception:
-            updateLog("Error", traceback.format_exc())
-            return "Error"
-
-class webTranslatorThread(QThread):
-
-    def __init__(self, translator):
-        super().__init__()
-        self.translator = translator
-
-    def run(self):
-        global T
-        try:
-            updateLog("Info", "初始化ChatGPT Web中....")
-            self.translator.reply_cnt = 0
-            options = undetected_chromedriver.ChromeOptions()
-            self.translator.driver = undetected_chromedriver.Chrome(options=options, browser_executable_path=Settings.bp)
-            self.translator.driver.get("https://chat.openai.com/")
-            WebDriverWait(self.translator.driver, timeout=100).until(EC.presence_of_element_located((By.CLASS_NAME, "group")))
-            updateLog("Info", "Translator初始化成功")
-            T = True
-        except Exception:
-            updateLog("Error", "Translator初始化失败:")
-            updateLog("", traceback.format_exc())
-
-class webtranslator:
-    def __init__(self):
-        self.driver = None
-        if not os.path.exists("chromedriver.exe"):
-            updateLog("Error", "未找到chromedriver 请下载对应版本的driver丢到目录下 或者切换其他翻译方式")
-        else:
-            self.init_thread = webTranslatorThread(self)
-            self.init_thread.start()
-
-    def translate(self, text):
-        self.ask("请将这段日文符合语气地优美地贴合原意地翻译为中文只给出翻译后的结果即可无需添加其他东西" + text)
-        return translator.getLastReply()
-
-    def ask(self, text):
-        global display
-        txtbox = self.driver.find_element(By.ID, "prompt-textarea")
-        txtbox.send_keys(text)
-        txtbox.send_keys(Keys.ENTER)
-        try:
-            WebDriverWait(self.driver, timeout=10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".result-streaming")))
-        except:
-            pass
-
-    def getLastReply(self, timeout=20):
-        reply = ""
-        t = 0
-        while self.driver.find_elements(By.CSS_SELECTOR, ".result-streaming") != []:
-            if t >= timeout:
-                return "Timeout!"
-            sleep(1)
-            t += 1
-        ReplyList = self.getReplyList()
-        if len(ReplyList) <= self.reply_cnt and self.driver.find_elements(By.CSS_SELECTOR, ".result-streaming") == []:
-            return "Error"
-        for i in range(self.reply_cnt, len(ReplyList)):
-            reply += ReplyList[i].text
-        self.reply_cnt = len(ReplyList)
-        return reply
-
-    def getReplyList(self):
-        return self.driver.find_elements(By.CSS_SELECTOR, ".markdown")
-
-class deepltranslator:
-    def __init__(self):
-        #如果是deepl pro的话 记得把server_url改为https://api.deepl-pro.com
-        global T
-        self.translator = deepl.Translator(auth_key=Settings.authkey, server_url=Settings.serverurl)
-        T = True
-
-    def translate(self, text):
-        try:
-            return self.translator.translate_text(text, target_lang="zh").text
-        except Exception:
-            updateLog("Error", traceback.format_exc())
-            return "Error"
+modules = []
+O = TE = False
 
 class OcrThread(QThread):
     def __init__(self, ocr):
@@ -232,7 +134,6 @@ class Textractor:
             except Exception:
                 updateLog("Error", traceback.format_exc())
 
-
 class MessageWidget(QWidget):
     def __init__(self, text1, text2, key, parent=None):
         super(MessageWidget, self).__init__(parent)
@@ -286,7 +187,7 @@ class HookcodeApp(QWidget):
             if key not in self.messages:
                 self.updateHookcode(key)
                 self.messages[key] = []
-            if self.comboBox.currentText() == key:
+            if self.comboBox.currentText() == key and not "控制台" in key and not "剪贴" in key:
                 reply = translator.translate(value)
                 self.message_signal.emit(key, value, reply)
                 display.updateSubtitle(reply)
@@ -346,12 +247,7 @@ class Settings:
     ht2 = ''
     text_extraction_mode = None
     tpath = ''
-    bp = ''
     translate_method = None
-    apikey = ''
-    model = ''
-    serverurl = ''
-    authkey = ''
 
 def writeCfg():
     config = f'''# 字幕字号
@@ -367,17 +263,7 @@ Text_Extraction_Mode: {Settings.text_extraction_mode}
 # TextractorCLI.exe的文件地址
 TextractorPath: "{Settings.tpath}"
 # 翻译方式
-Method: {Settings.translate_method}
-# Google浏览器的文件地址
-Browser_Path: "{Settings.bp}"
-# GPT APIKEY
-ApiKey: "{Settings.apikey}"
-# GPT模型名称
-Model: "{Settings.model}"
-# DeepL AuthKey
-AuthKey: "{Settings.authkey}"
-#DeepL Server Url 若为Pro则填https://api.deepl-pro.com Free保持默认
-ServerUrl: "{Settings.serverurl}"'''
+Method: {Settings.translate_method}'''
     open('config.yml', 'w', encoding="utf-8").write(config)
 
 def loadCfg():
@@ -394,17 +280,7 @@ Text_Extraction_Mode: 0
 # TextractorCLI.exe的文件地址
 TextractorPath: ""
 # 翻译方式
-Method: 1
-# Google浏览器的文件地址
-Browser_Path: ""
-# GPTApiKey
-ApiKey: "Put your api key here if you enable gptapi"
-# GPT模型名称
-Model: "gpt-3.5-turbo"
-# DeepL AuthKey
-AuthKey: "Put your authkey here if you enable deeplapi"
-#DeepL Server Url 若为Pro则填https://api.deepl-pro.com Free保持默认
-ServerUrl: "https://api-free.deepl.com"'''
+Method: 1'''
     while True:
         try:
             updateLog("Info", "读取配置文件中....")
@@ -416,11 +292,6 @@ ServerUrl: "https://api-free.deepl.com"'''
             Settings.text_extraction_mode = int(config["Text_Extraction_Mode"])
             Settings.tpath = config["TextractorPath"]
             Settings.translate_method = int(config["Method"])
-            Settings.bp = config["Browser_Path"]
-            Settings.apikey = config["ApiKey"]
-            Settings.model = config["Model"]
-            Settings.authkey = config["AuthKey"]
-            Settings.serverurl = config["ServerUrl"]
             updateLog("Info", "成功!")
             break
         except:
@@ -443,7 +314,7 @@ class SubtitleApp(QtWidgets.QWidget):
         self.setStyleSheet("background:transparent;")
         self.label = QtWidgets.QLabel(self)
         self.label.setWordWrap(True)
-        self.label.setGeometry(QtCore.QRect(0, 0, 1000, 300))
+        self.label.setGeometry(QtCore.QRect(0, 0, 700, 150))
         self.label.setStyleSheet(Settings.alpha)
         self.label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         font = QtGui.QFont("Arial", Settings.size)
@@ -660,69 +531,25 @@ class SettingsApp(QWidget):
 
         self.label_cb = QLabel("翻译方式")
         self.cb = QComboBox(self)
-        self.cb.addItem('ChatGPT网页版')
-        self.cb.addItem('GPT API')
-        self.cb.addItem('DeepL API')
+        for m in modules:
+            self.cb.addItem(m.Manifest.module_name)
         self.cb.setCurrentIndex(Settings.translate_method)
         self.cb.currentIndexChanged.connect(self.on_translate_method_changed)
         self.layout.addWidget(self.label_cb)
         self.layout.addWidget(self.cb)
 
-        self.stacked_widget = QStackedWidget(self)
-        self.layout.addWidget(self.stacked_widget)
-
-        self.page0 = QWidget()
-        self.page0_layout = QVBoxLayout(self.page0)
-        self.label_msg1 = QLabel("Chrome浏览器文件地址")
-        self.path1 = QLineEdit()
-        self.path1.setText(Settings.bp)
-        self.browse = QPushButton("选取")
-        self.browse.clicked.connect(lambda: self.open_file_dialog("Select Chrome.exe", self.path1))
-        topLayout1 = QHBoxLayout()
-        topLayout1.addWidget(self.path1)
-        topLayout1.addWidget(self.browse)
-        self.p1_layout.addWidget(self.label_path)
-        self.p1_layout.addLayout(topLayout)
-        self.label_msg2 = QLabel('觉得不错的话请Github给个Star<a href="https://github.com/RetCute/GalTranslator">Github</a>')
-        self.label_msg2.setOpenExternalLinks(True)
-        self.label_msg3 = QLabel('或者B站三连支持一下UP!<a href="https://space.bilibili.com/441114907">Bilibili</a>')
-        self.label_msg3.setOpenExternalLinks(True)
-        self.page0_layout.addWidget(self.label_msg1)
-        self.page0_layout.addLayout(topLayout1)
-        self.page0_layout.addWidget(self.label_msg2)
-        self.page0_layout.addWidget(self.label_msg3)
-
-        # 创建每个页面的布局
-        self.page1 = QWidget()
-        self.page1_layout = QVBoxLayout(self.page1)
-        self.label_apikey = QLabel("ApiKey")
-        self.apikey = QLineEdit()
-        self.label_model = QLabel("Model")
-        self.model = QLineEdit()
-        self.model.setText(Settings.model)
-        self.apikey.setText(Settings.apikey)
-        self.page1_layout.addWidget(self.label_apikey)
-        self.page1_layout.addWidget(self.apikey)
-        self.page1_layout.addWidget(self.label_model)
-        self.page1_layout.addWidget(self.model)
-
-        self.page2 = QWidget()
-        self.page2_layout = QVBoxLayout(self.page2)
-        self.label_authkey = QLabel("AuthKey")
-        self.authkey = QLineEdit()
-        self.label_url = QLabel("Server Url")
-        self.serverurl = QLineEdit()
-        self.serverurl.setText(Settings.serverurl)
-        self.authkey.setText(Settings.authkey)
-        self.page2_layout.addWidget(self.label_authkey)
-        self.page2_layout.addWidget(self.authkey)
-        self.page2_layout.addWidget(self.label_url)
-        self.page2_layout.addWidget(self.serverurl)
-
-        # 添加页面到QStackedWidget
-        self.stacked_widget.addWidget(self.page0)
-        self.stacked_widget.addWidget(self.page1)
-        self.stacked_widget.addWidget(self.page2)
+        self.author = QLabel(f"模块作者:{modules[self.cb.currentIndex()].Manifest.author}")
+        self.url = QLabel(f"相关链接:<a href='{modules[self.cb.currentIndex()].Manifest.url}'>{modules[self.cb.currentIndex()].Manifest.url}</a>")
+        self.url.setOpenExternalLinks(True)
+        self.url.setWordWrap(True)
+        self.description = QLabel(f"模块介绍:{modules[self.cb.currentIndex()].Manifest.description}")
+        self.description.setWordWrap(True)
+        self.cfgbutton = QPushButton("配置模块")
+        self.cfgbutton.clicked.connect(modules[self.cb.currentIndex()].openSettings)
+        self.layout.addWidget(self.author)
+        self.layout.addWidget(self.url)
+        self.layout.addWidget(self.description)
+        self.layout.addWidget(self.cfgbutton)
 
         self.save_button = QPushButton("保存")
         self.save_button.clicked.connect(self.save)
@@ -734,14 +561,17 @@ class SettingsApp(QWidget):
         self.setLayout(self.layout)
 
     def on_translate_method_changed(self, index):
-        self.stacked_widget.setCurrentIndex(index)
+        self.author.setText(f"模块作者:{modules[index].Manifest.author}")
+        self.url.setText(f"相关链接:<a href='{modules[index].Manifest.url}'>{modules[index].Manifest.url}</a>")
+        self.description.setText(f"模块介绍:{modules[index].Manifest.description}")
+        self.cfgbutton.clicked.disconnect()
+        self.cfgbutton.clicked.connect(modules[index].openSettings)
 
     def on_text_extraction_mode_changed(self, index):
         self.stacked_widget1.setCurrentIndex(index)
 
     def open_file_dialog(self, msg, path):
         file_path, _ = QFileDialog.getOpenFileName(self, msg)
-
         if file_path:
             path.setText(file_path)
 
@@ -752,12 +582,7 @@ class SettingsApp(QWidget):
         Settings.ht2 = self.ht2.text()
         Settings.tpath = self.path.text()
         Settings.text_extraction_mode = int(self.cb1.currentIndex())
-        Settings.bp = self.path1.text()
         Settings.translate_method = int(self.cb.currentIndex())
-        Settings.apikey = self.apikey.text()
-        Settings.model = self.model.text()
-        Settings.authkey = self.authkey.text()
-        Settings.serverurl = self.serverurl.text()
         writeCfg()
         QMessageBox.information(self, "保存成功", "保存成功,某些设置可能需要重启软件才能启用")
 
@@ -796,6 +621,13 @@ class AttachProcessDialog(QDialog):
         layout.addWidget(self.okButton)
         layout.addWidget(self.cancelButton)
         self.setLayout(layout)
+
+    def accept(self):
+        process_name = self.processEdit.text()
+        if process_name and process_name in self.processes_map:
+            super(AttachProcessDialog, self).accept()  # 正常关闭对话框
+        else:
+            QMessageBox.warning(self, "Warning", "请选择一个进程或者输入有效的进程名称！")
 
     def onProcessClicked(self, index):
         self.processEdit.setText(self.model.itemFromIndex(index).text())
@@ -866,9 +698,9 @@ def updateLog(msg_type, msg):
 
 def run():
     global running, display, hookcodeapp
-    conditions = T and O
+    conditions = translator.running and O
     if Settings.text_extraction_mode != 0:
-        conditions = T and TE
+        conditions = translator.running and TE
     if not captureSize.top and Settings.text_extraction_mode == 0:
         messageBox(title="警告", message="你没有选择截图区域!")
     elif running:
@@ -922,7 +754,8 @@ def CheckForUpdates():
         else:
             updateLog("Info", "You are using the latest version")
     except:
-        updateLog("Error", "检查更新失败")
+        messageBox("Error", "检检查更新失败")
+        updateLog("Error", "检查更新失败，请使用代理后重试")
 
 def SetProxies():
     parser = argparse.ArgumentParser(description='设置系统代理')
@@ -945,21 +778,29 @@ class Main:
         self.window = window
         self.Init()
 
+    def scanTranslators(self):
+        for root, dirs, files in os.walk('modules'):
+            for subdir in dirs:
+                try:
+                    module_name = f"{root}.{subdir}.translator".replace('/', '.').replace('\\', '.')
+                    imported_module = importlib.import_module(module_name)
+                    if hasattr(imported_module, 'Translator') and hasattr(imported_module, 'openSettings') and hasattr(imported_module, 'Manifest'):
+                        modules.append(imported_module)
+                    else:
+                        updateLog("Error", f"导入{subdir}出错,可能该模块不符合标准格式")
+                except:
+                    pass
+
     def InitFunctions(self):
-        global translator, ocr, textractor
+        global translator, ocr, textractor, module
+        self.scanTranslators()
         if Settings.text_extraction_mode == 0:
             ocr = OCR()
         else:
             textractor = Textractor()
-        if Settings.translate_method == 1:
-            updateLog("Info", "您正在使用OpenAI GPT API翻译模式")
-            translator = apitranslator()
-        elif Settings.translate_method == 2:
-            updateLog("Info", "您正在使用DeepL API翻译模式")
-            translator = deepltranslator()
-        else:
-            updateLog("Info", "您正在使用ChatGPT Web翻译模式")
-            translator = webtranslator()
+        module = modules[Settings.translate_method]
+        translator = modules[Settings.translate_method].Translator(updateLog)
+        updateLog("Info", f"您正在使用{module.Manifest.module_name}翻译模式")
 
     def Init(self):
         global logTextBox
