@@ -26,7 +26,7 @@ import deepl
 import win32gui
 import win32process
 
-Version = "V1.1"
+Version = "V1.12"
 running = False
 modules = []
 O = TE = False
@@ -268,7 +268,7 @@ Method: {Settings.translate_method}'''
 
 def loadCfg():
     default_config = '''# 字幕字号
-size: 36
+size: 20
 # 字幕文字颜色和透明度 前面三个是rgb数值 后面是透明度0-100 越高越不透明
 alpha: "color:rgba(255,0,0,255);"
 # 截图热键
@@ -328,12 +328,12 @@ class SubtitleApp(QtWidgets.QWidget):
         self.controlsVisible = False
 
         self.keepBorderCheckbox = QtWidgets.QCheckBox("保持边框状态", self)
-        self.keepBorderCheckbox.setGeometry(QtCore.QRect(850, 270, 200, 30))
+        self.keepBorderCheckbox.setGeometry(QtCore.QRect(580, 125, 140, 30))
         self.keepBorderCheckbox.setStyleSheet("""
             QCheckBox {
                 color: white;        /* 字体颜色 */
                 font-family: Arial;  /* 字体族 */
-                font-size: 18px;     /* 字体大小 */
+                font-size: 15px;     /* 字体大小 */
                 font-weight: bold;   /* 字体加粗 */
             }
             """)
