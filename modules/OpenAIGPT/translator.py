@@ -20,6 +20,7 @@ def openSettings():
 class Settings:
     apikey = None
     model = None
+    api_base = None
     updateLog = None
     cfg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yml")
 
@@ -28,7 +29,9 @@ class Settings:
         default_config = '''#GPT APIKEY
 ApiKey: ""
 #GPT模型名称
-Model: "gpt4"'''
+Model: "gpt3.5-turbo"
+#OpenAI的API_Base 默认为官方 填写中转apibase可以不挂梯子
+Api_Base: "https://api.openai.com/v1"'''
         while True:
             try:
                 if log:
@@ -36,6 +39,7 @@ Model: "gpt4"'''
                 config = safe_load(open(cls.cfg, 'r', errors='ignore', encoding="utf-8"))
                 cls.apikey = config["ApiKey"]
                 cls.model = config["Model"]
+                cls.api_base = config["Api_Base"]
                 if log:
                     cls.updateLog("Info", "成功!")
                 break
@@ -50,7 +54,9 @@ Model: "gpt4"'''
         config = f'''#GPT APIKEY
 ApiKey: "{cls.apikey}"
 #GPT模型名称
-Model: "{cls.model}"'''
+Model: "{cls.model}"
+#OpenAI的API_Base 默认为官方 填写中转apibase可以不挂梯子
+Api_Base: "{cls.api_base}"'''
         open(cls.cfg, 'w', encoding="utf-8").write(config)
 
 class SettingsApp(QWidget):
@@ -58,18 +64,23 @@ class SettingsApp(QWidget):
         super(SettingsApp, self).__init__(parent)
         Settings.loadCfg(log=False)
         self.setWindowTitle(f"{Manifest.module_name} Settings")
-        self.resize(120, 80)
+        self.resize(120, 110)
         self.layout = QVBoxLayout()
         self.label_apikey = QLabel("ApiKey")
         self.apikey = QLineEdit()
         self.label_model = QLabel("Model")
         self.model = QLineEdit()
+        self.label_base = QLabel("ApiBaseUrl")
+        self.apibase = QLineEdit()
+        self.apibase.setText(Settings.api_base)
         self.model.setText(Settings.model)
         self.apikey.setText(Settings.apikey)
         self.layout.addWidget(self.label_apikey)
         self.layout.addWidget(self.apikey)
         self.layout.addWidget(self.label_model)
         self.layout.addWidget(self.model)
+        self.layout.addWidget(self.label_base)
+        self.layout.addWidget(self.apibase)
         self.save_button = QPushButton("保存")
         self.save_button.clicked.connect(self.save)
         self.layout.addWidget(self.save_button)
@@ -78,6 +89,7 @@ class SettingsApp(QWidget):
     def save(self):
         Settings.apikey = self.apikey.text()
         Settings.model = self.model.text()
+        Settings.api_base = self.apibase.text()
         Settings.writeCfg()
         QMessageBox.information(self, "保存成功", "保存成功,某些设置可能需要重启软件才能启用")
 
@@ -85,7 +97,7 @@ class Translator:
     def __init__(self, updatelog):
         Settings.updateLog = updatelog
         Settings.loadCfg()
-        self.client = OpenAI(api_key=Settings.apikey)
+        self.client = OpenAI(api_key=Settings.apikey, base_url=Settings.api_base)
         self.updateLog = updatelog
         self.messages = [
                     {"role": "system", "content": f"请将下面这段日文符合语气地优美地贴合原意地翻译为中文并且结合我消息记录的前几个句子进行翻译只给出翻译后的结果即可无需添加其他东西"},
