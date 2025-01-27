@@ -13,16 +13,9 @@ import sys, argparse
 import traceback
 from PIL import Image, ImageGrab, ImageEnhance
 from time import sleep
-from openai import OpenAI
 import keyboard
 from threading import Thread
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.common.by import By
-import undetected_chromedriver
-from selenium.webdriver.common.keys import Keys
 from paddleocr import PaddleOCR
-import deepl
 import win32gui
 import win32process
 
@@ -81,7 +74,7 @@ class Textractor:
         else:
             updateLog("Error", "TextractorCLI.exe Not Found")
 
-    def run(self, process):
+    def run(self, pid):
         if self.process.poll():
             self.process = subprocess.Popen(
                 Settings.tpath,
@@ -93,23 +86,15 @@ class Textractor:
                 encoding='utf-16-le'
             )
         Thread(target=self.monitor_output, daemon=True).start()
-        Thread(target=self.monitor, daemon=True, args=(process,)).start()
-        self.attach(process[1])
+        Thread(target=self.monitor, daemon=True, args=(pid,)).start()
+        self.attach(pid)
 
-    def is_running(self, processName):
-        try:
-            tasks = subprocess.check_output(['tasklist'], shell=True)
-            return processName in str(tasks)
-        except Exception:
-            updateLog("Error", traceback.format_exc())
-            return False
-
-    def monitor(self, process):
+    def monitor(self, pid):
         global running
         while True:
-            if keyboard.is_pressed(Settings.ht2) or not self.is_running(process[0]):
+            if keyboard.is_pressed(Settings.ht2) or not psutil.pid_exists(pid):
                 updateLog("Info", "已退出!")
-                self.detach(process[1])
+                self.detach(pid)
                 self.process.kill()
                 display.exit()
                 hookcodeapp.close()
@@ -723,7 +708,7 @@ def run():
                 Process = dialog.selectedProcess()
                 display = SubtitleApp(pid=Process[1])
                 hookcodeapp = HookcodeApp()
-                textractor.run(Process)
+                textractor.run(Process[1])
 
 def monitor():
     global running
