@@ -19,7 +19,7 @@ from paddleocr import PaddleOCR
 import win32gui
 import win32process
 
-Version = "V1.12"
+Version = "V1.2"
 running = False
 modules = []
 O = TE = False
@@ -729,17 +729,26 @@ def monitor():
         except Exception:
             updateLog("Error", traceback.format_exc())
 
+def Annoucement():
+    try:
+        annoucement = requests.get("https://gh-proxy.com/https://raw.githubusercontent.com/RetCute/GalTranslator/main/Annoucement", timeout=10).text
+        updateLog("Info", "获取公告中")
+        messageBox("公告", annoucement)
+    except:
+        messageBox("Error", "获取公告失败")
+        updateLog("Error", "获取公告失败，请使用代理后重试")
+
 def CheckForUpdates():
     try:
-        version = requests.get("https://raw.githubusercontent.com/RetCute/GalTranslator/main/Version", timeout=10).text.strip()
         updateLog("Info", "Checking for updates....")
+        version = requests.get("https://gh-proxy.com/https://raw.githubusercontent.com/RetCute/GalTranslator/main/Version", timeout=10).text.strip()
         if version != Version:
             messageBox("更新通知", "检测到有新版本可用,请前往Github下载")
             updateLog("Info", "New version available")
         else:
             updateLog("Info", "You are using the latest version")
     except:
-        messageBox("Error", "检检查更新失败")
+        messageBox("Error", "检查更新失败")
         updateLog("Error", "检查更新失败，请使用代理后重试")
 
 def SetProxies():
@@ -811,6 +820,7 @@ class Main:
         layout.addWidget(logTextBox)
         window.showNormal()
         CheckForUpdates()
+        Annoucement()
         loadCfg()
         self.InitFunctions()
         app.exec_()
