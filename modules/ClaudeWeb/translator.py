@@ -83,6 +83,7 @@ class SettingsApp(QWidget):
         Settings.bp = self.path1.text()
         Settings.writeCfg()
         QMessageBox.information(self, "保存成功", "保存成功,某些设置可能需要重启软件才能启用")
+        Settings.loadCfg(log=False)
 
 class ClaudeTranslatorThread(QThread):
     def __init__(self, translator, updatelog):

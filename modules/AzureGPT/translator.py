@@ -104,6 +104,7 @@ class SettingsApp(QWidget):
         Settings.depoly_name = self.model.text()
         Settings.writeCfg()
         QMessageBox.information(self, "保存成功", "保存成功,某些设置可能需要重启软件才能启用")
+        Settings.loadCfg(log=False)
 
 class Translator:
     def __init__(self, updatelog):
